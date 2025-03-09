@@ -43,19 +43,23 @@ const HybridCamera = ({ target }: HybridCameraProps) => {
 
   useFrame(() => {
     if (target.current) {
-      // Get the spaceship's position and rotation
+      // Get the spaceship's position and quaternion
       const position = target.current.position;
-      const rotation = target.current.rotation;
+      const quaternion = target.current.quaternion;
 
-      // Position camera behind the spaceship based on its rotation
-      const cameraX = position.x + offsetRef.current.z * Math.sin(rotation.y);
-      const cameraZ = position.z + offsetRef.current.z * Math.cos(rotation.y);
-      const cameraY = position.y + offsetRef.current.y;
+      // Create a direction vector pointing backward (negative Z)
+      const direction = new THREE.Vector3(0, 0, 1);
 
-      // Set camera position
-      camera.position.x = cameraX;
-      camera.position.y = cameraY;
-      camera.position.z = cameraZ;
+      // Apply the spaceship's rotation to the direction vector
+      direction.applyQuaternion(quaternion);
+
+      // Scale the direction vector by the desired distance
+      direction.multiplyScalar(offsetRef.current.z);
+
+      // Position camera behind the spaceship based on the rotated direction
+      camera.position.x = position.x + direction.x;
+      camera.position.y = position.y + offsetRef.current.y; // Add height offset
+      camera.position.z = position.z + direction.z;
 
       // Look at the spaceship
       camera.lookAt(position);
@@ -304,7 +308,9 @@ const SpaceshipController = ({ spaceshipRef }: SpaceshipControllerProps) => {
 
     if (isHovering) {
       // Add hovering effect when the ship is stationary or moving very slowly
-      const time = performance.now() * 0.001; // Convert to seconds
+      // Use a safe way to get the current time that works in both browser and server environments
+      const time =
+        typeof window !== 'undefined' ? (performance?.now() || 0) * 0.001 : 0;
       const hoverSpeed = 1.5;
       const hoverHeight = 0.2;
 
