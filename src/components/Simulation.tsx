@@ -78,7 +78,7 @@ const SpaceshipController = ({ spaceshipRef }: SpaceshipControllerProps) => {
   const turnRate = 1; // How fast the spaceship turns (in radians per second)
   const currentSpeed = useRef(0); // Current speed - using ref to avoid re-renders
   const currentDirection = useRef(0); // Current direction (yaw) - persists between frames
-  const maxBankAngle = 0; // Maximum banking angle in radians (about 17 degrees)
+  const maxBankAngle = 0.5; // Maximum banking angle in radians (about 17 degrees)
   const currentBankAngle = useRef(0); // Current banking angle (roll) - for tilting during turns
   const bankingSmoothness = 3; // How quickly the banking angle changes (higher = smoother)
 
@@ -256,10 +256,35 @@ const SpaceshipController = ({ spaceshipRef }: SpaceshipControllerProps) => {
       (targetPitchAngle - currentPitchAngle.current) * pitchSmoothness * delta;
     currentPitchAngle.current += pitchDelta;
 
-    // Apply all rotations to the spaceship
-    spaceshipRef.current.rotation.y = currentDirection.current;
-    spaceshipRef.current.rotation.z = currentBankAngle.current;
-    spaceshipRef.current.rotation.x = currentPitchAngle.current;
+    // Use quaternions for proper 3D rotation that respects the ship's current orientation
+    // Reset rotation first
+    spaceshipRef.current.rotation.set(0, 0, 0);
+
+    // Create quaternions for each rotation
+    const yawQ = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      currentDirection.current
+    );
+
+    // Create pitch quaternion (rotate around local X axis)
+    const pitchQ = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      currentPitchAngle.current
+    );
+
+    // Create roll quaternion (rotate around local Z axis)
+    const rollQ = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      currentBankAngle.current
+    );
+
+    // Combine rotations in the correct order: yaw -> pitch -> roll
+    const combinedQ = new THREE.Quaternion();
+    combinedQ.multiplyQuaternions(yawQ, pitchQ);
+    combinedQ.multiplyQuaternions(combinedQ, rollQ);
+
+    // Apply the combined rotation to the spaceship
+    spaceshipRef.current.quaternion.copy(combinedQ);
 
     // Apply movement based on current speed and direction
     if (Math.abs(currentSpeed.current) > 0.1) {
@@ -274,8 +299,41 @@ const SpaceshipController = ({ spaceshipRef }: SpaceshipControllerProps) => {
       spaceshipRef.current.position.z += moveZ;
     }
 
-    // Apply height to Y position
-    spaceshipRef.current.position.y = currentHeight.current;
+    // Apply height to Y position with hovering effect when speed is near zero
+    const isHovering = Math.abs(currentSpeed.current) < 5; // Consider hovering when speed is less than 5
+
+    if (isHovering) {
+      // Add hovering effect when the ship is stationary or moving very slowly
+      const time = performance.now() * 0.001; // Convert to seconds
+      const hoverSpeed = 1.5;
+      const hoverHeight = 0.2;
+
+      // Primary hover motion
+      const primaryHover = Math.sin(time * hoverSpeed) * hoverHeight;
+
+      // Secondary subtle motion for more realism
+      const secondaryHover =
+        Math.sin(time * hoverSpeed * 2.5) * (hoverHeight * 0.2);
+
+      // Apply hovering to the height
+      spaceshipRef.current.position.y =
+        currentHeight.current + primaryHover + secondaryHover;
+
+      // Add slight tilting for more dynamic hovering effect
+      const hoverTiltX = Math.sin(time * hoverSpeed * 0.3) * 0.01;
+      const hoverTiltZ = Math.sin(time * hoverSpeed * 0.5) * 0.03;
+
+      // Apply hover tilt by modifying the quaternion slightly
+      const hoverTiltQ = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(hoverTiltX, 0, hoverTiltZ)
+      );
+
+      // Combine with existing rotation
+      spaceshipRef.current.quaternion.multiply(hoverTiltQ);
+    } else {
+      // Just apply the height without hovering
+      spaceshipRef.current.position.y = currentHeight.current;
+    }
   });
 
   return null;
